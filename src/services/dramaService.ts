@@ -5,20 +5,36 @@ import { GoogleGenAI, Type, Modality } from "@google/genai";
 // but for the "Brain" (scripting), we use the system key.
 const getAI = (apiKey?: string) => new GoogleGenAI({ apiKey: apiKey || process.env.GEMINI_API_KEY });
 
-async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
+async function withRetry<T>(fn: () => Promise<T>, maxRetries = 5): Promise<T> {
   let lastError: any;
   for (let i = 0; i < maxRetries; i++) {
     try {
       return await fn();
     } catch (err: any) {
       lastError = err;
-      const isRateLimit = err.message?.includes("429") || err.status === 429 || JSON.stringify(err).includes("429");
+      const errorStr = JSON.stringify(err).toLowerCase();
+      const isRateLimit = err.status === 429 || 
+                          errorStr.includes("429") || 
+                          errorStr.includes("quota") || 
+                          errorStr.includes("rate limit") ||
+                          errorStr.includes("too many requests");
+      
       if (isRateLimit && i < maxRetries - 1) {
-        const delay = Math.pow(2, i) * 2000 + Math.random() * 1000;
-        console.warn(`Rate limit hit, retrying in ${Math.round(delay)}ms...`);
+        const delay = Math.pow(2, i) * 3000 + Math.random() * 2000;
+        console.warn(`Rate limit hit (Attempt ${i + 1}/${maxRetries}), retrying in ${Math.round(delay)}ms...`);
         await new Promise(resolve => setTimeout(resolve, delay));
         continue;
       }
+      
+      // If it's a transient network error, also retry
+      const isTransient = errorStr.includes("fetch") || errorStr.includes("network") || errorStr.includes("timeout");
+      if (isTransient && i < maxRetries - 1) {
+        const delay = 1000 * (i + 1);
+        console.warn(`Transient error (Attempt ${i + 1}/${maxRetries}), retrying in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+
       throw err;
     }
   }
@@ -285,9 +301,20 @@ export const dramaService = {
     
     let operation = await ai.models.generateVideos(videoConfig);
 
+    // Poll for completion with a maximum timeout (e.g., 5 minutes)
+    const startTime = Date.now();
+    const maxWaitTime = 5 * 60 * 1000; 
+
     while (!operation.done) {
+      if (Date.now() - startTime > maxWaitTime) {
+        throw new Error("视频生成超时，请稍后重试");
+      }
       await new Promise(resolve => setTimeout(resolve, 10000));
       operation = await ai.operations.getVideosOperation({ operation: operation });
+      
+      if (operation.error) {
+        throw new Error(`视频生成任务失败: ${operation.error.message || "未知错误"}`);
+      }
     }
 
     const downloadLink = operation.response?.generatedVideos?.[0]?.video?.uri;

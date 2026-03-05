@@ -123,18 +123,24 @@ export default function App() {
       const updatedCharacters = [...script.characters];
       let completed = 0;
       
-      await Promise.all(updatedCharacters.map(async (char, i) => {
+      // Sequential processing to avoid rate limits
+      for (let i = 0; i < updatedCharacters.length; i++) {
+        const char = updatedCharacters[i];
         if (char.imageUrl) {
           completed++;
-          return;
+          continue;
         }
-        // Add a small staggered delay to avoid hitting rate limits simultaneously
-        await new Promise(resolve => setTimeout(resolve, i * 500));
+        
         const imageUrl = await dramaService.generateCharacterImage(char, script.style);
         updatedCharacters[i] = { ...char, imageUrl };
         completed++;
         setProgress(prev => ({ ...prev, characters: Math.round((completed / updatedCharacters.length) * 100) }));
-      }));
+        
+        // Small pause between requests
+        if (i < updatedCharacters.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      }
 
       setScript({ ...script, characters: updatedCharacters });
     } catch (err: any) {
@@ -188,18 +194,24 @@ export default function App() {
       const updatedScenes = [...currentEpisode.scenes];
       let completed = 0;
 
-      await Promise.all(updatedScenes.map(async (scene, i) => {
+      // Sequential processing to avoid rate limits
+      for (let i = 0; i < updatedScenes.length; i++) {
+        const scene = updatedScenes[i];
         if (scene.imageUrl) {
           completed++;
-          return;
+          continue;
         }
-        // Add a small staggered delay to avoid hitting rate limits simultaneously
-        await new Promise(resolve => setTimeout(resolve, i * 800));
+
         const imageUrl = await dramaService.generateSceneImage(scene, script.characters, script.style);
         updatedScenes[i] = { ...scene, imageUrl };
         completed++;
         setProgress(prev => ({ ...prev, scenes: Math.round((completed / updatedScenes.length) * 100) }));
-      }));
+        
+        // Small pause between requests
+        if (i < updatedScenes.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 1500));
+        }
+      }
 
       currentEpisode.scenes = updatedScenes;
       setScript({ ...script, episodes: updatedEpisodes });
