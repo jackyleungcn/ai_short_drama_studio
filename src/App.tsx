@@ -250,6 +250,7 @@ export default function App() {
       const currentEpisode = updatedEpisodes[activeEpisodeIndex];
       const updatedScenes = [...currentEpisode.scenes];
       let completed = 0;
+      let failedCount = 0;
 
       // Use sequential processing to avoid rate limits and hanging
       for (let i = 0; i < updatedScenes.length; i++) {
@@ -265,43 +266,98 @@ export default function App() {
           continue;
         }
 
-        const audioUrl = await dramaService.generateVoice(fullDialogue);
-        
-        // Calculate audio duration with timeout and error handling
-        let audioDuration = 0;
         try {
-          const audio = new Audio(audioUrl);
-          await new Promise((resolve) => {
-            const timeout = setTimeout(() => {
-              console.warn("Audio metadata load timeout");
-              resolve(null);
-            }, 3000);
+          const audioUrl = await dramaService.generateVoice(fullDialogue);
+          
+          // Calculate audio duration with timeout and error handling
+          let audioDuration = 0;
+          try {
+            const audio = new Audio(audioUrl);
+            await new Promise((resolve) => {
+              const timeout = setTimeout(() => {
+                console.warn("Audio metadata load timeout");
+                resolve(null);
+              }, 3000);
 
-            audio.onloadedmetadata = () => {
-              clearTimeout(timeout);
-              audioDuration = audio.duration;
-              resolve(null);
-            };
+              audio.onloadedmetadata = () => {
+                clearTimeout(timeout);
+                audioDuration = audio.duration;
+                resolve(null);
+              };
 
-            audio.onerror = () => {
-              clearTimeout(timeout);
-              console.error("Audio load error");
-              resolve(null);
-            };
-          });
-        } catch (e) {
-          console.error("Failed to get audio duration", e);
+              audio.onerror = () => {
+                clearTimeout(timeout);
+                console.error("Audio load error");
+                resolve(null);
+              };
+            });
+          } catch (e) {
+            console.error("Failed to get audio duration", e);
+          }
+
+          updatedScenes[i] = { ...scene, audioUrl, audioDuration };
+        } catch (sceneErr) {
+          console.error(`Failed to generate audio for scene ${i}:`, sceneErr);
+          failedCount++;
         }
-
-        updatedScenes[i] = { ...scene, audioUrl, audioDuration };
+        
         completed++;
         setProgress(prev => ({ ...prev, audio: Math.round((completed / updatedScenes.length) * 100) }));
       }
 
       currentEpisode.scenes = updatedScenes;
       setScript({ ...script, episodes: updatedEpisodes });
+      
+      if (failedCount > 0) {
+        setError(`有 ${failedCount} 个场景的音频生成失败，请尝试单独重新生成或再次点击合成。`);
+      }
     } catch (err: any) {
       setError(err.message || "生成音频失败");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleRegenerateAudio = async (sceneId: string) => {
+    if (!script || !script.episodes[activeEpisodeIndex]) return;
+    setIsProcessing(true);
+    try {
+      const currentEpisode = script.episodes[activeEpisodeIndex];
+      const sceneIndex = currentEpisode.scenes.findIndex(s => s.id === sceneId);
+      if (sceneIndex === -1) return;
+      
+      const scene = currentEpisode.scenes[sceneIndex];
+      const fullDialogue = scene.dialogue.map(d => `${d.speaker}: ${d.text}`).join(". ");
+      if (!fullDialogue.trim()) {
+        throw new Error("该场景没有对话，无法生成音频");
+      }
+
+      const audioUrl = await dramaService.generateVoice(fullDialogue);
+      
+      let audioDuration = 0;
+      try {
+        const audio = new Audio(audioUrl);
+        await new Promise((resolve) => {
+          const timeout = setTimeout(() => resolve(null), 3000);
+          audio.onloadedmetadata = () => {
+            clearTimeout(timeout);
+            audioDuration = audio.duration;
+            resolve(null);
+          };
+          audio.onerror = () => {
+            clearTimeout(timeout);
+            resolve(null);
+          };
+        });
+      } catch (e) {
+        console.error("Failed to get audio duration", e);
+      }
+
+      const updatedEpisodes = [...script.episodes];
+      updatedEpisodes[activeEpisodeIndex].scenes[sceneIndex] = { ...scene, audioUrl, audioDuration };
+      setScript({ ...script, episodes: updatedEpisodes });
+    } catch (err: any) {
+      setError(err.message || "重新生成音频失败");
     } finally {
       setIsProcessing(false);
     }
@@ -941,30 +997,53 @@ export default function App() {
                               </button>
                             </div>
                             <div className="flex-1 space-y-3">
-                              <div className="flex items-center justify-between gap-4">
-                                <input 
-                                  type="text"
-                                  value={scene.title}
-                                  onChange={(e) => {
-                                    const updatedEpisodes = [...script.episodes];
-                                    updatedEpisodes[activeEpisodeIndex].scenes[idx].title = e.target.value;
-                                    setScript({ ...script, episodes: updatedEpisodes });
-                                  }}
-                                  className="font-bold bg-transparent border-b border-transparent focus:border-[#151619]/20 focus:outline-none flex-1"
-                                  placeholder="场景标题"
-                                />
-                                <input 
-                                  type="text"
-                                  value={scene.setting}
-                                  onChange={(e) => {
-                                    const updatedEpisodes = [...script.episodes];
-                                    updatedEpisodes[activeEpisodeIndex].scenes[idx].setting = e.target.value;
-                                    setScript({ ...script, episodes: updatedEpisodes });
-                                  }}
-                                  className="text-[10px] font-bold uppercase tracking-widest text-[#151619]/40 bg-transparent border-b border-transparent focus:border-[#151619]/20 focus:outline-none text-right"
-                                  placeholder="时间与地点"
-                                />
-                              </div>
+                                <div className="flex items-center gap-2">
+                                  <input 
+                                    type="text"
+                                    value={scene.title}
+                                    onChange={(e) => {
+                                      const updatedEpisodes = [...script.episodes];
+                                      updatedEpisodes[activeEpisodeIndex].scenes[idx].title = e.target.value;
+                                      setScript({ ...script, episodes: updatedEpisodes });
+                                    }}
+                                    className="font-bold bg-transparent border-b border-transparent focus:border-[#151619]/20 focus:outline-none flex-1"
+                                    placeholder="场景标题"
+                                  />
+                                  <div className="flex items-center gap-2">
+                                    {scene.audioUrl && (
+                                      <button 
+                                        onClick={() => new Audio(scene.audioUrl).play()}
+                                        className="p-1.5 bg-emerald-50 text-emerald-600 rounded-lg hover:bg-emerald-100 transition-all"
+                                        title="播放音频"
+                                      >
+                                        <Play size={12} fill="currentColor" />
+                                      </button>
+                                    )}
+                                    <button 
+                                      onClick={() => handleRegenerateAudio(scene.id)}
+                                      disabled={isProcessing}
+                                      className={`p-1.5 rounded-lg transition-all ${
+                                        scene.audioUrl 
+                                          ? 'bg-white border border-[#151619]/10 text-[#151619]/40 hover:text-[#151619]' 
+                                          : 'bg-amber-50 text-amber-600 hover:bg-amber-100'
+                                      }`}
+                                      title={scene.audioUrl ? "重新生成音频" : "生成音频"}
+                                    >
+                                      {isProcessing ? <Loader2 className="animate-spin" size={12} /> : <Mic2 size={12} />}
+                                    </button>
+                                  </div>
+                                  <input 
+                                    type="text"
+                                    value={scene.setting}
+                                    onChange={(e) => {
+                                      const updatedEpisodes = [...script.episodes];
+                                      updatedEpisodes[activeEpisodeIndex].scenes[idx].setting = e.target.value;
+                                      setScript({ ...script, episodes: updatedEpisodes });
+                                    }}
+                                    className="text-[10px] font-bold uppercase tracking-widest text-[#151619]/40 bg-transparent border-b border-transparent focus:border-[#151619]/20 focus:outline-none text-right"
+                                    placeholder="时间与地点"
+                                  />
+                                </div>
                               <textarea 
                                 value={scene.description}
                                 onChange={(e) => {

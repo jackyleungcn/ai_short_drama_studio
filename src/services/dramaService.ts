@@ -26,11 +26,17 @@ async function withRetry<T>(fn: () => Promise<T>, maxRetries = 5): Promise<T> {
         continue;
       }
       
-      // If it's a transient network error, also retry
-      const isTransient = errorStr.includes("fetch") || errorStr.includes("network") || errorStr.includes("timeout");
+      // If it's a transient network error or 500 Internal Error, also retry
+      const isTransient = errorStr.includes("fetch") || 
+                          errorStr.includes("network") || 
+                          errorStr.includes("timeout") ||
+                          err.status === 500 ||
+                          errorStr.includes("internal error") ||
+                          errorStr.includes("500");
+      
       if (isTransient && i < maxRetries - 1) {
-        const delay = 1000 * (i + 1);
-        console.warn(`Transient error (Attempt ${i + 1}/${maxRetries}), retrying in ${delay}ms...`);
+        const delay = 2000 * (i + 1) + Math.random() * 1000;
+        console.warn(`Transient/Internal error (Attempt ${i + 1}/${maxRetries}), retrying in ${Math.round(delay)}ms...`);
         await new Promise(resolve => setTimeout(resolve, delay));
         continue;
       }
