@@ -1,5 +1,5 @@
 {
-  "name": "AI Short Drama Studio",
+  "name": "AI短剧梦工厂",
   "description": "A professional-grade short drama production system that transforms a single sentence into a structured, visualized, and voiced short drama using Gemini AI.",
   "requestFramePermissions": []
 }
