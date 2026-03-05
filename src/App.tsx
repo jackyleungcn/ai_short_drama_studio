@@ -239,23 +239,43 @@ export default function App() {
       const updatedScenes = [...currentEpisode.scenes];
       let completed = 0;
 
-      await Promise.all(updatedScenes.map(async (scene, i) => {
-        // Add a small staggered delay to avoid hitting rate limits simultaneously
-        await new Promise(resolve => setTimeout(resolve, i * 300));
+      // Use sequential processing to avoid rate limits and hanging
+      for (let i = 0; i < updatedScenes.length; i++) {
+        const scene = updatedScenes[i];
+        if (scene.audioUrl) {
+          completed++;
+          continue;
+        }
+
         const fullDialogue = scene.dialogue.map(d => `${d.speaker}: ${d.text}`).join(". ");
+        if (!fullDialogue.trim()) {
+          completed++;
+          continue;
+        }
+
         const audioUrl = await dramaService.generateVoice(fullDialogue);
         
-        // Calculate audio duration
+        // Calculate audio duration with timeout and error handling
         let audioDuration = 0;
         try {
           const audio = new Audio(audioUrl);
           await new Promise((resolve) => {
+            const timeout = setTimeout(() => {
+              console.warn("Audio metadata load timeout");
+              resolve(null);
+            }, 3000);
+
             audio.onloadedmetadata = () => {
+              clearTimeout(timeout);
               audioDuration = audio.duration;
               resolve(null);
             };
-            // Fallback for duration if metadata fails
-            setTimeout(() => resolve(null), 2000);
+
+            audio.onerror = () => {
+              clearTimeout(timeout);
+              console.error("Audio load error");
+              resolve(null);
+            };
           });
         } catch (e) {
           console.error("Failed to get audio duration", e);
@@ -264,7 +284,7 @@ export default function App() {
         updatedScenes[i] = { ...scene, audioUrl, audioDuration };
         completed++;
         setProgress(prev => ({ ...prev, audio: Math.round((completed / updatedScenes.length) * 100) }));
-      }));
+      }
 
       currentEpisode.scenes = updatedScenes;
       setScript({ ...script, episodes: updatedEpisodes });

@@ -73,14 +73,14 @@ export const dramaService = {
     const ai = getAI();
     const response = await withRetry(() => ai.models.generateContent({
       model: "gemini-3.1-pro-preview",
-      contents: `你是一位专业的短剧导演和编剧。请将以下提示词解析为一个结构化的系列短剧剧本（通常包含3-5集），所有文本内容必须使用中文。
+      contents: `你是一位专业的短剧导演和编剧。请将以下提示词解析为一个结构化的单集短剧剧本（包含4-8个场景），所有文本内容必须使用中文。
       
       短剧风格：${style}
       
       关键要求：
-      1. 角色一致性：为每个核心角色提供极其详细的视觉描述（英文），包括发型、发色、瞳色、特定服装风格。这些角色将贯穿所有剧集。
-      2. 剧集结构：将故事拆分为多个剧集（episodes），每一集都有自己的标题、梗概和场景。
-      3. 场景一致性：确保环境描述在剧集之间保持逻辑连贯。
+      1. 角色一致性：为每个核心角色提供极其详细的视觉描述（英文），包括发型、发色、瞳色、特定服装风格。
+      2. 剧本结构：这是一个单集剧本，包含完整的起承转合。
+      3. 场景描述：每个场景需要有详细的视觉描述（英文）和对白。
       4. 情感卡点：在对白中通过文字描述引导节奏。
       5. 风格契合：剧本内容、角色设定和场景描述必须高度契合“${style}”的风格特点。
       
@@ -217,7 +217,7 @@ export const dramaService = {
     throw new Error("生成场景图像失败");
   },
 
-  async generateVoice(text: string, voiceName: string = 'Kore'): Promise<string> {
+  async generateVoice(text: string, voiceName: string = 'Zephyr'): Promise<string> {
     const ai = getAI();
     const response = await withRetry(() => ai.models.generateContent({
       model: "gemini-2.5-flash-preview-tts",
